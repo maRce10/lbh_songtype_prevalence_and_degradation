@@ -1,0 +1,256 @@
+---
+title: Song type selection by prevalence
+subtitle: LBH song type prevalence and degradation
+author: <a href="http://researcher.website.com/">Researcher name</a>
+date: "`r Sys.Date()`"
+toc: true
+toc-depth: 2
+toc-location: left
+number-sections: true
+highlight-style: pygments
+format:
+  html:
+    df-print: kable
+    code-fold: show
+    code-tools: true
+    css: qmd.css
+editor_options: 
+  chunk_output_type: console
+---
+
+
+<!-- this code add line numbers to code blocks -->
+<!-- only works when code folding is not used in yaml (code_folding: show) -->
+
+```{=html}
+<style>
+body
+  { counter-reset: source-line 0; }
+pre.numberSource code
+  { counter-reset: none; }
+</style>
+```
+
+```{r set root directory, echo = FALSE}
+
+# set working directory as project directory or one directory above,
+rootdir <- try(rprojroot::find_rstudio_root_file(), silent = TRUE)
+if (is(rootdir, "try-error")) rootdir <-  ".."
+knitr::opts_knit$set(root.dir = rootdir)
+
+```
+
+```{r add link to github repo, echo = FALSE, results='asis'}
+
+# print link to github repo if any
+if (file.exists("./.git/config")){
+  config <- readLines("./.git/config")
+  url <- grep("url",  config, value = TRUE)
+  url <- gsub("\\turl = |.git$", "", url)
+  cat("\nSource code and data found at [", url, "](", url, ")", sep = "")
+  }
+
+```
+
+
+```{r setup style, echo = FALSE, message = FALSE, warning=FALSE}
+
+# options to customize chunk outputs
+knitr::opts_chunk$set(
+  class.source = "numberLines lineAnchors", # for code line numbers
+  tidy.opts = list(width.cutoff = 65), 
+  tidy = TRUE,
+  message = FALSE
+ )
+
+```
+
+
+<!-- skyblue box -->
+<div class="alert alert-info">
+
+# Purpose
+
+- The first goal of this report
+
+- The second goal of this report
+
+</div>
+
+&nbsp; 
+
+
+<!-- light brown box -->
+<div class="alert alert-warning">
+
+# Report overview
+
+- You can have the sections listed here, for instance:
+
+  - [Lorem ipsum](#lorem-ipsum)
+  - [Takeaways](#takeaways)
+
+</div>
+
+&nbsp;
+
+# Load packages
+
+```{r load packages}
+
+# knitr is require for creating html/pdf/word reports
+# formatR is used for soft-wrapping code
+
+# install/ load packages
+sketchy::load_packages(packages = c("knitr", "formatR", "rprojroot", "warbleR"))
+
+```
+
+# Lorem ipsum
+
+
+```{r}
+
+est <- readRDS("./data/raw/EST all sels aug 2019.RDS")
+
+# get prevalence (number of years) per song type
+prev_st <- sapply(unique(est$lek.song.type), function(x)
+  max(est$year[est$lek.song.type == x]) - min(est$year[est$lek.song.type == x]) + 1
+)
+
+# get names of song types with 5 or more years
+hi_prev_st <- names(prev_st)[prev_st >= 5]
+
+# get names of song types that 
+lo_prev_st <- names(prev_st)[prev_st == 1]
+
+# get which of those the leks were recorded before and after
+out <- sapply(lo_prev_st, function(x){
+  x_year <- unique(est$year[est$lek.song.type == x])
+  
+  years <- c(x_year - 1, x_year, x_year + 1)
+  
+  out <- if (all(years %in% unique(est$year[est$lek == substr(x, 0, 3)])))  x
+  else NA
+})
+
+lo_prev_st <- names(out)[!is.na(out)]
+
+# keep est with low and high prevalence song types only
+est_prev <- est[est$lek.song.type %in% c(hi_prev_st, lo_prev_st), ]
+
+# homogenize sample rate and bit depth
+
+est_prev <- resample_est_waves(est_prev, samp.rate = 44.1, bit.depth = 16, parallel = 20)
+
+est_prev$prevalence <- ifelse(est_prev$lek.song.type %in% hi_prev_st, "high", "low")
+
+# number of song types per category
+table(est_prev$prevalence[!duplicated(est_prev$lek.song.type)])
+
+saveRDS(est_prev, "./data/raw/extended_selection_table_high_and_low_prevalence_songtype.RDS")
+
+#edited file open
+pre <- readRDS("./data/raw/extended_selection_table_high_and_low_prevalence_songtype.RDS")
+unique(pre$prevalence)
+#values of SNR
+summary(abs(pre$SNR[pre$prevalence == "low"]))
+summary(abs(pre$SNR[pre$prevalence == "high"]))
+#how many recordings per song type
+table(pre$lek.song.type[pre$prevalence == "low"])
+table(pre$lek.song.type[pre$prevalence == "high"])
+
+#subset by year
+library(dplyr) # lo siento!!!! no encontre otra mejor opcion
+#seleccionar los 3 SNR mejores de cada song type por año
+test <- pre %>% 
+    group_by(lek.song.type, year) %>% 
+    top_n(3, SNR) %>% 
+    ungroup()
+table(test$lek.song.type)
+length(unique(pre$lek.song.type)) == length(unique(test$lek.song.type))
+
+#Disminuir a los ejemplos de los sogntypes que tienen más de 3 de un año
+test2 <- test %>%
+  group_by(lek.song.type) %>%
+  mutate(n_years = n_distinct(year)) %>%
+  filter(n_years >= 3) %>%
+  group_by(lek.song.type, year) %>%
+  slice_max(SNR) %>%
+  ungroup()
+table(test2$lek.song.type)
+length(unique(pre$lek.song.type)) == length(unique(test2$lek.song.type))
+# hacer ejemplos de 2 años
+test3 <- test %>%
+  group_by(lek.song.type) %>%
+  mutate(n_years = n_distinct(year)) %>%
+  filter(n_years == 2) %>%
+  group_by(lek.song.type, year) %>%
+  top_n(2, SNR) %>%
+  ungroup()
+table(test2$lek.song.type)
+
+#unir las bases
+str(test$lek.song.type)
+try <- bind_rows(test3, test2)
+try2 <- anti_join(test, try, by = "lek.song.type")
+try <- bind_rows(try2, try)
+try <- try %>% group_by(lek.song.type) %>% mutate(n_years = n_distinct(year)) #fix years
+rm(list= "try2", "test","test2","test3")
+table(try$lek.song.type)
+table(try2$lek.song.type)
+length(unique(pre$lek.song.type)) == length(unique(try$lek.song.type))
+#trim the data to three of the best examples
+sample <- try %>% 
+    group_by(lek.song.type) %>% 
+    #distinct(SNR, .keep_all = TRUE) %>% # no hay necesidad arregle el bug
+    top_n(3, SNR) %>% 
+    ungroup()
+table(sample$lek.song.type)
+length(unique(pre$lek.song.type)) == length(unique(sample$lek.song.type))
+rm(try)
+#fix the selection table
+sample <- fix_extended_selection_table(sample, est)
+class(sample)
+#manual validation
+validation <- sample %>% 
+    group_by(lek.song.type) %>%
+    mutate(Validate = duplicated(year)) %>%
+    ungroup()
+write.csv(validation[,c(1,17,18,26,49,50,51)], "Validation.csv")
+
+#make mastersound file
+
+```
+
+<!-- '&nbsp;' adds blank space -->
+
+
+
+<!-- light green box -->
+
+<div class="alert alert-success">
+
+# Takeaways {.unnumbered .unlisted}
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vestibulum in felis ut mauris consectetur sodales. Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+
+</div>
+
+&nbsp;
+
+<!-- '---' adds a gray vertical line -->
+
+---
+
+&nbsp; 
+ 
+ <!-- add packages used, system details and versions  -->
+ 
+<font size="4">Session information</font>
+
+```{r session info, echo=F}
+
+sessionInfo()
+
+```
