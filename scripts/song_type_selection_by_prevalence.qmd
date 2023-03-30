@@ -102,12 +102,11 @@ knitr::opts_chunk$set(
 # formatR is used for soft-wrapping code
 
 # install/ load packages
-sketchy::load_packages(packages = c("knitr", "formatR", "rprojroot", "warbleR"))
+sketchy::load_packages(packages = c("knitr", "formatR", "rprojroot", "warbleR", "baRulho", "readxl"))
 
 ```
 
-# Lorem ipsum
-
+# Selecting song types by prevalence
 
 ```{r}
 
@@ -115,32 +114,32 @@ est <- readRDS("./data/raw/EST all sels aug 2019.RDS")
 
 # get prevalence (number of years) per song type
 prev_st <- sapply(unique(est$lek.song.type), function(x)
-  max(est$year[est$lek.song.type == x]) - min(est$year[est$lek.song.type == x]) + 1
-)
+  max(est$year[est$lek.song.type == x]) - min(est$year[est$lek.song.type == x]) + 1)
+
+
+kn_prev_st <- sapply(unique(est$lek.song.type), function(x){
+    
+     x_year <- unique(est$year[est$lek.song.type == x])
+  
+  range_years <- c(min(x_year) - 1, max(x_year) + 1)
+  
+  out <- if (all(range_years %in% unique(est$year[est$lek == substr(x, 0, 3)]))) prev_st[names(prev_st) == x] else NA
+    
+  names(out) <- NULL
+  return(out)
+    
+})
 
 # get names of song types with 5 or more years
 hi_prev_st <- names(prev_st)[prev_st >= 5]
 
 # get names of song types that 
-lo_prev_st <- names(prev_st)[prev_st == 1]
-
-# get which of those the leks were recorded before and after
-out <- sapply(lo_prev_st, function(x){
-  x_year <- unique(est$year[est$lek.song.type == x])
-  
-  years <- c(x_year - 1, x_year, x_year + 1)
-  
-  out <- if (all(years %in% unique(est$year[est$lek == substr(x, 0, 3)])))  x
-  else NA
-})
-
-lo_prev_st <- names(out)[!is.na(out)]
+lo_prev_st <- names(kn_prev_st)[kn_prev_st %in% 1:2]
 
 # keep est with low and high prevalence song types only
 est_prev <- est[est$lek.song.type %in% c(hi_prev_st, lo_prev_st), ]
 
 # homogenize sample rate and bit depth
-
 est_prev <- resample_est_waves(est_prev, samp.rate = 44.1, bit.depth = 16, parallel = 20)
 
 est_prev$prevalence <- ifelse(est_prev$lek.song.type %in% hi_prev_st, "high", "low")
@@ -148,82 +147,232 @@ est_prev$prevalence <- ifelse(est_prev$lek.song.type %in% hi_prev_st, "high", "l
 # number of song types per category
 table(est_prev$prevalence[!duplicated(est_prev$lek.song.type)])
 
+est_prev$sample.rate <- est_prev$tailored <- est_prev$quality <- est_prev$source <- est_prev$sound.file.samples <- est_prev$channel <- est_prev$territoriality <- est_prev$marked.bird <- est_prev$song.type.CONS <- est_prev$lek.song.type.CONS <- est_prev$lek.sampling <- est_prev$LBUCRcode <- est_prev$comments <- est_prev$check.res <- est_prev$duration <- est_prev$channels <- est_prev$month <- est_prev$bits <- est_prev$lek.song.type.OLD <- est_prev$bird.year <- est_prev$lek2 <- est_prev$perch <- est_prev$period <- est_prev$decade <- est_prev$min <- est_prev$hour <- est_prev$time <- NULL
+
 saveRDS(est_prev, "./data/raw/extended_selection_table_high_and_low_prevalence_songtype.RDS")
-
-#edited file open
-pre <- readRDS("./data/raw/extended_selection_table_high_and_low_prevalence_songtype.RDS")
-unique(pre$prevalence)
-#values of SNR
-summary(abs(pre$SNR[pre$prevalence == "low"]))
-summary(abs(pre$SNR[pre$prevalence == "high"]))
-#how many recordings per song type
-table(pre$lek.song.type[pre$prevalence == "low"])
-table(pre$lek.song.type[pre$prevalence == "high"])
-
-#subset by year
-library(dplyr) # lo siento!!!! no encontre otra mejor opcion
-#seleccionar los 3 SNR mejores de cada song type por año
-test <- pre %>% 
-    group_by(lek.song.type, year) %>% 
-    top_n(3, SNR) %>% 
-    ungroup()
-table(test$lek.song.type)
-length(unique(pre$lek.song.type)) == length(unique(test$lek.song.type))
-
-#Disminuir a los ejemplos de los sogntypes que tienen más de 3 de un año
-test2 <- test %>%
-  group_by(lek.song.type) %>%
-  mutate(n_years = n_distinct(year)) %>%
-  filter(n_years >= 3) %>%
-  group_by(lek.song.type, year) %>%
-  slice_max(SNR) %>%
-  ungroup()
-table(test2$lek.song.type)
-length(unique(pre$lek.song.type)) == length(unique(test2$lek.song.type))
-# hacer ejemplos de 2 años
-test3 <- test %>%
-  group_by(lek.song.type) %>%
-  mutate(n_years = n_distinct(year)) %>%
-  filter(n_years == 2) %>%
-  group_by(lek.song.type, year) %>%
-  top_n(2, SNR) %>%
-  ungroup()
-table(test2$lek.song.type)
-
-#unir las bases
-str(test$lek.song.type)
-try <- bind_rows(test3, test2)
-try2 <- anti_join(test, try, by = "lek.song.type")
-try <- bind_rows(try2, try)
-try <- try %>% group_by(lek.song.type) %>% mutate(n_years = n_distinct(year)) #fix years
-rm(list= "try2", "test","test2","test3")
-table(try$lek.song.type)
-table(try2$lek.song.type)
-length(unique(pre$lek.song.type)) == length(unique(try$lek.song.type))
-#trim the data to three of the best examples
-sample <- try %>% 
-    group_by(lek.song.type) %>% 
-    #distinct(SNR, .keep_all = TRUE) %>% # no hay necesidad arregle el bug
-    top_n(3, SNR) %>% 
-    ungroup()
-table(sample$lek.song.type)
-length(unique(pre$lek.song.type)) == length(unique(sample$lek.song.type))
-rm(try)
-#fix the selection table
-sample <- fix_extended_selection_table(sample, est)
-class(sample)
-#manual validation
-validation <- sample %>% 
-    group_by(lek.song.type) %>%
-    mutate(Validate = duplicated(year)) %>%
-    ungroup()
-write.csv(validation[,c(1,17,18,26,49,50,51)], "Validation.csv")
-
-#make mastersound file
 
 ```
 
-<!-- '&nbsp;' adds blank space -->
+```{r}
+
+#edited file open
+est_prev <- readRDS("./data/raw/extended_selection_table_high_and_low_prevalence_songtype.RDS")
+
+mean(est_prev$SNR)
+
+est_prev$lek.song.type.id <- paste(est_prev$lek.song.type, seq_len(nrow(est_prev)), sep = "-")
+
+# remove weird selection
+# est_prev <- est_prev[est_prev$sound.files != "43.CCL.2011.6.16.8.19.WAV_4", ]
+est_prev <- est_prev[grep("310.CCL.2013.3.3.7.38|43.CCL.2011.6.16.8.19", est_prev$sound.files, invert = TRUE), ]
+
+
+# choose from those with SNR >3 best examples from different years when possible
+lek.song.type.id_list <- lapply(unique(est_prev$lek.song.type), function(x){
+    
+    Y <- as.data.frame(est_prev[est_prev$lek.song.type == x, ])
+    
+    # keep songs with SNR > 4
+    Y <- Y[Y$SNR >= 3, ]
+    Y$rank <- ave(-Y$SNR, Y$year, FUN = rank) 
+
+    Y <- Y[order(Y$year, Y$SNR, decreasing = TRUE), ]
+    
+    years_y <- unique(Y$year)
+    
+       if (length(years_y) == 2)
+           Y <- Y[Y$rank %in% 1:2, ]
+    
+     if (length(years_y) >= 3) 
+       Y <- Y[Y$rank == 1, ]
+          
+    out <- Y$lek.song.type.id[order(Y$SNR, decreasing = TRUE)][1:3]
+
+    return(out)
+  
+})
+
+lek.song.type.id <- unlist(lek.song.type.id_list)
+
+est_prev_high_snr <- est_prev[est_prev$lek.song.type.id %in% lek.song.type.id, ]
+
+
+saveRDS(est_prev_high_snr, "./data/raw/extended_selection_table_high_and_low_prevalence_songtype_high_snr_example.RDS")
+
+
+# duplicate
+est_prev_high_snr_2 <- est_prev_high_snr 
+
+reps <- lapply(1:5, function(x){
+    
+    est_prev_high_snr_2 <- rename_est_waves(est_prev_high_snr_2, new.sound.files = est_prev_high_snr_2$sound.files, new.selec = x)
+    
+    
+})
+
+est_prev_high_snr_dup <- reps[[1]]
+
+for (i in 2:5)
+est_prev_high_snr_dup <- rbind(est_prev_high_snr_dup, reps[[i]])
+
+est_prev_high_snr_dup <- est_prev_high_snr_dup[order(est_prev_high_snr_dup$lek.song.type), ]
+
+catalog(est_prev_high_snr_dup, flim = c(1, 9), nrow = 10, ncol = 12, fast.spec = TRUE, box = FALSE, lab.mar = 0.01, wl = 200, pal = viridis::viridis, height = 8.5, width = 15)
+
+# randomized position
+set.seed(123)
+est_prev_high_snr_dup <- est_prev_high_snr_dup[sample(1:nrow(est_prev_high_snr_dup)), ]
+
+saveRDS(est_prev_high_snr_dup, "./data/raw/extended_selection_table_high_and_low_prevalence_songtype_high_snr_example_randomized_duplicated.RDS")
+
+
+# create master sound file
+synth.master.sf <- master_sound_file(X = est_prev_high_snr_dup, file.name = "prevalence_master", gap.duration = 0.1, dest.path = "./data/processed/", overwrite = TRUE)
+
+
+synth.master.sf$song.type.lek <- sapply(synth.master.sf$orig.sound.file, function(x) est_prev_high_snr_dup$lek.song.type[est_prev_high_snr_dup$sound.files == x][1])
+
+synth.master.sf$SNR <- sapply(synth.master.sf$orig.sound.file, function(x) est_prev_high_snr_dup$SNR[est_prev_high_snr_dup$sound.files == x][1])
+
+synth.master.sf$prevalence <- sapply(synth.master.sf$orig.sound.file, function(x) est_prev_high_snr_dup$prevalence[est_prev_high_snr_dup$sound.files == x][1])
+
+Rraven::exp_raven(X = synth.master.sf, path = "./data/processed/", sound.file.path = "./data/processed/", file.name = "prevalence_master")
+
+```
+
+# Selecting examples for all song types (SNR > 3)
+```{r}
+
+#edited file open
+est <- readRDS("./data/raw/EST all sels aug 2019.RDS")
+
+est$lek.song.type.id <- paste(est$lek.song.type, seq_len(nrow(est)), sep = "-")
+
+# remove weird selection
+est <- est[grep("310.CCL.2013.3.3.7.38|43.CCL.2011.6.16.8.19", est$sound.files, invert = TRUE), ]
+
+#only those with SNR > 3
+est_high_snr <- est[est$SNR > 3, ]
+
+# choose from those with SNR >3 best examples from different years when possible
+lek.song.type.id_list <- lapply(unique(est_high_snr$lek.song.type), function(x){
+    
+    Y <- as.data.frame(est_high_snr[est_high_snr$lek.song.type == x, ])
+    
+    # keep songs with SNR > 4
+    Y <- Y[Y$SNR >= 3, ]
+    Y$rank <- ave(-Y$SNR, Y$year, FUN = rank) 
+
+    Y <- Y[order(Y$year, Y$SNR, decreasing = TRUE), ]
+    
+    years_y <- unique(Y$year)
+    
+       if (length(years_y) == 2)
+           Y <- Y[Y$rank %in% 1:2, ]
+    
+     if (length(years_y) >= 3) 
+       Y <- Y[Y$rank == 1, ]
+          
+    out <- Y$lek.song.type.id[order(Y$SNR, decreasing = TRUE)][1:3]
+
+    return(out)
+  
+})
+
+lek.song.type.id <- unlist(lek.song.type.id_list)
+
+est_sel_high_snr <- est_high_snr[est_high_snr$lek.song.type.id %in% lek.song.type.id, ]
+
+est_sel_high_snr <- resample_est_waves(est_sel_high_snr, samp.rate = 44.1, bit.depth = 16, parallel = 20)
+
+saveRDS(est_sel_high_snr, "./data/raw/extended_selection_table_all_songtype_high_snr.RDS")
+
+
+# duplicate
+est_sel_high_snr_2 <- est_sel_high_snr 
+
+reps <- lapply(1:5, function(x){
+    
+    est_sel_high_snr_2 <- rename_est_waves(est_sel_high_snr_2, new.sound.files = est_sel_high_snr_2$sound.files, new.selec = x)
+    
+    
+})
+
+est_sel_high_snr_dup <- reps[[1]]
+
+for (i in 2:5)
+est_sel_high_snr_dup <- rbind(est_sel_high_snr_dup, reps[[i]])
+
+est_sel_high_snr_dup <- est_sel_high_snr_dup[order(est_sel_high_snr_dup$lek.song.type), ]
+
+catalog(est_sel_high_snr_dup, flim = c(1, 9), nrow = 10, ncol = 12, fast.spec = TRUE, box = FALSE, lab.mar = 0.01, wl = 200, pal = viridis::viridis, height = 8.5, width = 15, img.suffix = "all_songtypes")
+
+# randomized position
+set.seed(123)
+est_sel_high_snr_dup <- est_sel_high_snr_dup[sample(1:nrow(est_sel_high_snr_dup)), ]
+
+saveRDS(est_sel_high_snr_dup, "./data/raw/extended_selection_table_all_songtype_high_snr_randomized_duplicated.RDS")
+
+
+# create master sound file
+synth.master.sf <- master_sound_file(X = est_sel_high_snr_dup, file.name = "all_songtypes_master", gap.duration = 0.1, dest.path = "./data/processed/", overwrite = TRUE)
+
+
+synth.master.sf$song.type.lek <- sapply(synth.master.sf$orig.sound.file, function(x) est_sel_high_snr_dup$lek.song.type[est_sel_high_snr_dup$sound.files == x][1])
+
+synth.master.sf$SNR <- sapply(synth.master.sf$orig.sound.file, function(x) est_sel_high_snr_dup$SNR[est_sel_high_snr_dup$sound.files == x][1])
+
+Rraven::exp_raven(X = synth.master.sf, path = "./data/processed/", sound.file.path = "./data/processed/", file.name = "all_songtypes_master")
+
+```
+
+# get mean amplitude
+```{r}
+
+amp <- read.csv("~/Dropbox/Projects/lbh_song_amplitude/output/calibrated_amplitude_all_songs.csv")
+
+cal <-  read_excel("~/Dropbox/Projects/lbh_song_amplitude/data/raw/calibrate_sound_meter_based_on_new_sound_meter.xlsx")[1:19,]
+
+amp$cal.spl <- amp$cal.spl - mean(cal$dif)
+amp <- amp[amp$Treatment %in% c("Regular_sining", "Before_interaction", "Before_noise"), ]
+
+agg.amp <- aggregate(cal.spl ~ ID, amp, mean)
+
+mean(agg.amp$cal.spl)
+
+```
+
+# Make calibration sound
+
+```{r creating playback for soundmeter calibration, eval = FALSE}
+
+
+# simulate sounds
+peak_freqs <- spectro_analysis(est_sel_high_snr, bp = "frange", wl = 200, parallel = 20, ovlp = 10)
+
+mean_peak_freq <- mean(peak_freqs$meanpeakf)
+
+# remove file created in next line (it cannot be overwritten)
+# unlink(file.path("./data/processed", "tone_for_calibrating_speaker_amplitude_DONT_USE.wav"))
+
+sm_sng_sm <- sim_songs(freq = mean_peak_freq, n = 1, harms = 1, diff.fun = "pure.tone", bgn = 0.0001, fin = 0.2, fout = 0.2, shape = "cos", selec.table = TRUE, file.name = "tone_for_calibrating_speaker_amplitude_DONT_USE", path = "./data/processed", durs = 20)
+
+# normalize
+sm_sng_sm$wave <- normalize(sm_sng_sm$wave, unit = "16")
+
+sel_cal_sound <- data.frame(sound.files = "tone_for_calibrating_speaker_amplitude_DONT_USE.wav", selec = 1, start = 0, end = 20, bottom.freq = 4, top.freq = 8)
+
+est_cal_sound <- selection_table(sel_cal_sound, path =  "./data/processed", extended = TRUE, confirm.extended = FALSE)
+
+est_cal_sound <- rbind(est_cal_sound, est_sel_high_snr_dup[1:2, ])
+
+# create master sound file
+synth.master.calib.sf <- master_sound_file(X = est_cal_sound, file.name = "tone_for_calibrating_speaker_amplitude_master", gap.duration = 0.1, dest.path = "./data/processed/", overwrite = TRUE)
+
+```
+
+
+
 
 
 
